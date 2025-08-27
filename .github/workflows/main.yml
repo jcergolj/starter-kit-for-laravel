@@ -1,0 +1,55 @@
+on:
+  push:
+
+jobs:
+  code-formatter:
+    name: "code formatter"
+    uses: jcergolj/reusable-github-actions/.github/workflows/code-formatter.yml@master
+    with:
+      skip-npm: true
+
+  larastan:
+    name: "larastan"
+    uses: jcergolj/reusable-github-actions/.github/workflows/larastan.yml@master
+
+  envy:
+    name: "envy"
+    uses: jcergolj/reusable-github-actions/.github/workflows/envy.yml@master
+
+  tests:
+    name: "tests"
+    uses: jcergolj/reusable-github-actions/.github/workflows/tests.yml@master
+    with:
+      install-tailwind-css: true
+
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          port: ${{ secrets.PORT }}
+          key: ${{ secrets.SSHKEY }}
+          script: |
+            cd /home/issuefy.dev
+            git fetch
+            git reset --hard origin/master
+            git pull
+
+            composer install --no-interaction --prefer-dist --optimize-autoloader
+
+            ( flock -w 10 9 || exit 1
+                echo 'Restarting FPM...'; sudo -S service php8.3-fpm reload ) 9>/tmp/fpmlock
+
+            if [ -f artisan ]; then
+                php artisan migrate --force
+            fi
+
+            php artisan optimize
+
+            php artisan tailwindcss:build --prod
+
+            php artisan importmap:optimize
